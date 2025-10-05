@@ -4,9 +4,9 @@ import os
 import json
 from dataclasses import dataclass
 from typing import Dict, Tuple, List, Optional
-
 import numpy as np
 import pandas as pd
+from .Data_limpieza import rsi, ema, macd, bollinger_bands, atr
 
 
 #%%

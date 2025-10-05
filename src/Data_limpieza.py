@@ -32,14 +32,9 @@ def cargar_y_limpiar(path_csv: str) -> pd.DataFrame:
     for col in ["Open", "High", "Low", "Close", "Volume BTC"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df.dropna(subset=["Open", "High", "Low", "Close"], inplace=True)
-    df["Volume BTC"] = df["Volume BTC"].fillna(0.0)
 
-    max_oc = df[["Open", "Close"]].max(axis=1)
-    min_oc = df[["Open", "Close"]].min(axis=1)
-    tmp_high = pd.concat([df["High"], max_oc, df["Low"]], axis=1).max(axis=1)
-    tmp_low  = pd.concat([df["Low"],  min_oc, tmp_high], axis=1).min(axis=1)
-    df["High"] = tmp_high
-    df["Low"]  = tmp_low
+    df["High"] = df[['High', 'Open', 'Close']].max(axis=1)
+    df["Low"]  = df[['Low', 'Open', 'Close']].min(axis=1)
     df = df[df["Low"] <= df["High"]]
     return df[["Open","High","Low","Close","Volume BTC"]]
 
@@ -104,4 +99,5 @@ def atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
     ], axis=1).max(axis=1)
     
     return tr.ewm(alpha=1/window, adjust=False).mean()
+
 # %%

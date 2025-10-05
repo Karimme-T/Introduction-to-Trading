@@ -1,28 +1,29 @@
 #%%
+# Importaciones
+from .Data_limpieza import cargar_y_limpiar, split_train_test_val
+from .Data_limpieza import rsi, ema, macd, bollinger_bands, atr
+from .Obtener_signals import StrategyParams, get_signals
+from .Backtest import backtest
+from . Ratios import compute_metrics
+from .Optimizacion import optimize_params
+from .Tablas_graficas import plot_equity, returns_tables
+
 from pathlib import Path
 import os, json
 import numpy as np
-
+from .config import tasa, capital_inicial, semilla, horas_anuales
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 DATA_DIR = ROOT / "Data" 
 data_file = "Binance_BTCUSDT_1h.csv"
 csv_path = DATA_DIR / data_file
-#%%
-# Importaciones
-from .Data_limpieza import cargar_y_limpiar, split_train_test_val
-from .Data_limpieza import rsi, ema, macd, bollinger_bands, atr
-from .Obtener_signals import StrategyParams, get_signals
-from .Backtest import backtest
-from .Metricas import compute_metrics
-from .Optimizacion import optimize_params
-from .Tablas_graficas import plot_equity, returns_tables
 
-# Optuna y helpers de optimización (si lo usarás)
+
+# Optuna y helpers de optimización 
 try:
     import optuna
-    from .Optimizacion import optimize_params, suggest_params
+    from Optimizacion import optimize_params, suggest_params
 except Exception:
     optuna = None
     optimize_params = None
@@ -30,17 +31,9 @@ except Exception:
 
 #%%
 
-#archivo main
-# Parámetros
-  
-tasa = 0.00125                   
-capital_inicial = 1_000_000.00               
-semilla = 2111544
+# Parámetros  
+
 rng = np.random.default_rng(semilla)
-
-horas_anuales = 24 * 365 
-
-#%%
 
 def main():
     path = ("CWD:", Path.cwd())
@@ -53,18 +46,15 @@ def main():
     splits = split_train_test_val(df, split=(0.60, 0.20, 0.20))
     tr, te, va = splits["train"], splits["test"], splits["val"]
 
-    # ---- Optimización ----
-    # Si no deseas optimizar (rápido), comenta este bloque y usa StrategyParams() por defecto.
     if optuna is not None and optimize_params is not None and suggest_params is not None:
         study = optimize_params(tr, te, n_trials=50)
-        best_p = suggest_params(study.best_trial)  # re-materializa StrategyParams desde los hyper del trial
+        best_p = suggest_params(study.best_trial)  
         print("Mejores hiperparámetros:", study.best_trial.params)
     else:
         best_p = StrategyParams()
 
-    # ---- Entrenamiento (opcional) y evaluación ----
     # Enfoque walk-forward simple:
-    #  1) Ajuste/selección con train+test (ya hecho arriba: objetivo en test)
+    #  1) Ajuste/selección con train+test 
     #  2) Evaluación FINAL en val:
     sig_val = get_signals(va, best_p)
     res_val = backtest(sig_val, best_p, fee_rate=tasa, start_equity=capital_inicial)
@@ -89,6 +79,3 @@ def main():
 
 
 # %%
-if __name__ == "__main__":
-    main()
-

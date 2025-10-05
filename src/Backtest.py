@@ -2,7 +2,6 @@
 # Importaciones
 from dataclasses import dataclass
 from typing import Dict, Tuple, List, Optional
-
 import numpy as np
 import pandas as pd
 import optuna
@@ -10,17 +9,6 @@ from .Obtener_signals import StrategyParams
 
 #%%
 # Backtest
-
-# Parámetros
-
-data_folder = "data"
-data = "Binance_BTCUSDT_1h.csv"   
-tasa = 0.00125                   
-capital_inicial = 100_000_000.00               
-semilla = 2111544
-rng = np.random.default_rng(semilla)
-
-horas_anuales = 24 * 365 
 
 @dataclass
 class Trade:
@@ -40,8 +28,8 @@ class BacktestResult:
     trades: List[Trade]
     stats: Dict[str, float]
 
-def backtest(signals_df: pd.DataFrame, p: StrategyParams, fee_rate: float = tasa,
-             start_equity: float = capital_inicial) -> BacktestResult:
+def backtest(signals_df: pd.DataFrame, p: StrategyParams, fee_rate: float,
+             start_equity: float) -> BacktestResult:
     """
     Backtest OHLC (sin apalancamiento). Ejecuta a close de la barra donde aparece la señal confirmada.
     SL/TP fijos por múltiplos de ATR desde la entrada. 1 posición a la vez (simple).
@@ -54,12 +42,13 @@ def backtest(signals_df: pd.DataFrame, p: StrategyParams, fee_rate: float = tasa
     equity_curve = []
     trades: List[Trade] = []
 
-    position = 0      # +1 long, -1 short, 0 flat
+    position = 0 
     entry_px = None
     units = 0.0
     sl_px = None
     tp_px = None
     fee_entry = 0.0
+    entry_time = None
 
     for t, row in df.iterrows():
         px = row["Close"]
@@ -68,11 +57,11 @@ def backtest(signals_df: pd.DataFrame, p: StrategyParams, fee_rate: float = tasa
         if position != 0:
             hit_sl = hit_tp = False
             if position == +1:
-                hit_sl = (row["Low"] <= sl_px) if sl_px is not None else False
-                hit_tp = (row["High"] >= tp_px) if tp_px is not None else False
+                hit_sl = (sl_px is not None) and (row['Low'] <= sl_px)
+                hit_tp = (tp_px is not None) and (row['High'] >= tp_px)
             else:  # corto
-                hit_sl = (row["High"] >= sl_px) if sl_px is not None else False
-                hit_tp = (row["Low"]  <= tp_px) if tp_px is not None else False
+                hit_sl = (sl_px is not None) and (row['High'] >= sl_px)
+                hit_tp = (tp_px is not None) and (row['Low'] <= tp_px)
 
             exit_reason = None
             if hit_sl and hit_tp:
@@ -85,14 +74,23 @@ def backtest(signals_df: pd.DataFrame, p: StrategyParams, fee_rate: float = tasa
 
             if exit_reason is not None:
                 exit_px = sl_px if exit_reason=="SL" else tp_px
-                fee_out = abs(exit_px * units) * fee_rate
-                pnl = (position * (exit_px - entry_px) * units) - fee_entry - fee_out
+
+                if exit_px is None:
+                    exit_px = px
+                if units == 0:
+                    pnl = 0.0
+                    fee_out = 0.0
+                else:
+                    fee_out = abs(exit_px * units) * fee_rate
+                    pnl = (position * (exit_px - entry_px) * units) - fee_entry - fee_out
+
                 equity += pnl
                 trades.append(Trade(entry_time=entry_time, exit_time=t, side="long" if position==1 else "short",
                                     entry_price=float(entry_px), exit_price=float(exit_px), units=float(units),
                                     fee_entry=float(fee_entry), fee_exit=float(fee_out), pnl=float(pnl)))
                 position, entry_px, units, sl_px, tp_px = 0, None, 0.0, None, None
                 fee_entry = 0.0
+                entry_time = None
 
         # 2) Si estamos flat, procesar entrada por señal confirmada
         sig = row["signal"]
@@ -100,15 +98,19 @@ def backtest(signals_df: pd.DataFrame, p: StrategyParams, fee_rate: float = tasa
             # Entramos a cierre de barra actual
             side = +1 if sig > 0 else -1
             entry_px = px
-            units = p.n_units  # fracción de BTC (permite “partes”)
+            units = p.n_shares 
+            if units <= 0:
+                print(f"Advertencia: Unidades de entrada calculas como {units} en {t}. No se abrirá posición")
+                continue
+
             fee_entry = abs(entry_px * units) * fee_rate
-            equity -= fee_entry  # fee reduce equity instantáneamente
+            equity -= fee_entry  
             position = side
             entry_time = t
 
             # Niveles SL/TP a partir de ATR
             atr_val = atr_.loc[t]
-            if atr_val is None or np.isnan(atr_val):
+            if np.isnan(atr_val):
                 sl_px = tp_px = None
             else:
                 if position == +1:
@@ -125,8 +127,13 @@ def backtest(signals_df: pd.DataFrame, p: StrategyParams, fee_rate: float = tasa
     if position != 0 and entry_px is not None:
         last_t = df.index[-1]
         exit_px = df["Close"].iloc[-1]
-        fee_out = abs(exit_px * units) * fee_rate
-        pnl = (position * (exit_px - entry_px) * units) - fee_entry - fee_out
+        if units == 0:
+            pnl = 0.0
+            fee_out = 0.0
+        else:
+            fee_out = abs(exit_px * units) * fee_rate
+            pnl = (position * (exit_px - entry_px) * units) - fee_entry - fee_out
+        
         equity += pnl
         trades.append(Trade(entry_time=entry_time, exit_time=last_t, side="long" if position==1 else "short",
                             entry_price=float(entry_px), exit_price=float(exit_px), units=float(units),
@@ -138,6 +145,6 @@ def backtest(signals_df: pd.DataFrame, p: StrategyParams, fee_rate: float = tasa
         index=[t for t, _ in equity_curve],
         name="Equity"
     )
-    stats = {}  # se llena en metrics()
+    stats = {}
     return BacktestResult(equity_curve=equity_curve, trades=trades, stats=stats)
 # %%
