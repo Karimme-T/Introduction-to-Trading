@@ -4,6 +4,7 @@ from __future__ import annotations
 from .Backtest import BacktestResult
 import matplotlib.pyplot as plt
 import pandas as pd
+from typing import Dict
 
 #%%
 

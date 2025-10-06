@@ -1,42 +1,77 @@
 #%%
 # Importaciones
 from __future__ import annotations 
-from dataclasses import dataclass
 from typing import Dict, Tuple, List, Optional
 import numpy as np
 import pandas as pd
+import re
 
 #%%
 # Función para la carga y limpieza del data set
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s)).strip().lower()
+
+def _ms_to_datetime(s: pd.Series) -> pd.Series:
+    try:
+        sr = pd.to_numeric(s, errors="coerce")
+        if sr.notna().any():
+            if(sr.dropna() > 1e11).mean() > 0.5:
+                return pd.to_datetime(sr, unit="ms", utc=True).dt.tz_localize(None)
+    except Exception:
+        pass
+    return pd.to_datetime(s, errors="coerce", utc=True).dt.tz_localize(None)
+
 
 def cargar_y_limpiar(path_csv: str) -> pd.DataFrame:
-    """
-    Lee el CSV, normaliza columnas, parsea fechas y asegura que las columnas sean numéricas
-    """
     df = pd.read_csv(path_csv)
-    columnas = ["Date", "Open", "High", "Low", "Close", "Volume BTC"]
-    colmap = {c: c.strip() for c in df.columns}
-    df = df.rename(columns=colmap)
-    missing = [c for c in columnas if c not in df.columns]
-    if missing:
-        raise ValueError(f"Faltan columnas: {missing}")
 
-    df = df[columnas].copy()
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce", utc=False)
-    df.dropna(subset=["Date"], inplace=True)
-    df.sort_values("Date", inplace=True)
-    df.drop_duplicates(subset=["Date"], keep="last", inplace=True)
-    df.set_index("Date", inplace=True)
-    df.index.name = "Date"
+    # Normalizar encabezados
+    orig_cols = list(df.columns)
+    norm_cols = [_norm(c) for c in df.columns]
+    df.columns = norm_cols
+
+    # Mapeo de encabezados
+    mapping = {
+        "date": "Date",
+        "open_time": "Date",
+
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "close": "Close",
+
+        "volume": "Volume BTC",
+        "volume btc": "Volume BTC",
+        "volume_btc": "Volume BTC",
+        "volume_BTC": "Volume BTC",
+    }
+
+    rename_dict = {c: mapping[c] for c in df.columns if c in mapping}
+    df = df.rename(columns=rename_dict)
+
+    if "Date" in df.columns:
+        df["Date"] = _ms_to_datetime(df["Date"])
+    else:
+        pass
 
     for col in ["Open", "High", "Low", "Close", "Volume BTC"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    df.dropna(subset=["Open", "High", "Low", "Close"], inplace=True)
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df["High"] = df[['High', 'Open', 'Close']].max(axis=1)
-    df["Low"]  = df[['Low', 'Open', 'Close']].min(axis=1)
-    df = df[df["Low"] <= df["High"]]
-    return df[["Open","High","Low","Close","Volume BTC"]]
+    required = ["Date", "Open", "High", "Low", "Close", "Volume BTC"]
+    present = [c for c in required if c in df.columns]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "Faltan columnas requeridas: "
+            f"{missing}. Columnas detectadas (normalizadas→final): "
+            f"{list(zip(orig_cols, df.columns))}"
+        )
+
+    df = df[required + [c for c in df.columns if c not in required]]
+    df = df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+
+    return df
 
 #%%
 def split_train_test_val(df: pd.DataFrame, split=(0.6, 0.2, 0.2)) -> Dict[str, pd.DataFrame]:

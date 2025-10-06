@@ -3,14 +3,12 @@
 from __future__ import annotations 
 import numpy as np
 import pandas as pd
-from .Backtest import BacktestResult
+from .Backtest import BacktestResult, Trade
 from .config import horas_anuales
 from typing import List, TYPE_CHECKING
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, Tuple, List
 
 #%%
-if TYPE_CHECKING:
-    from .Backtest import Trade
 
 def max_drawdown(equity: pd.Series) -> float:
     dd = equity / equity.cummax() - 1.0

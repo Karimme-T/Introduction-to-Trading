@@ -12,7 +12,7 @@ import optuna
 from .Obtener_signals import StrategyParams, get_signals
 from .Backtest import backtest
 from .Ratios import compute_metrics
-from .config import semilla, tasa, capital_inicial
+from .config import semilla
 #%%
 
 # Optimización OPTUNA

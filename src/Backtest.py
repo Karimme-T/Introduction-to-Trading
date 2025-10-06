@@ -1,10 +1,9 @@
 #%%
 # Importaciones
 from dataclasses import dataclass
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
-import optuna
 from .Obtener_signals import StrategyParams
 
 #%%

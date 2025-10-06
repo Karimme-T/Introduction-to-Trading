@@ -23,7 +23,7 @@ csv_path = DATA_DIR / data_file
 # Optuna y helpers de optimización 
 try:
     import optuna
-    from Optimizacion import optimize_params, suggest_params
+    from .Optimizacion import optimize_params, suggest_params
 except Exception:
     optuna = None
     optimize_params = None
@@ -79,3 +79,5 @@ def main():
 
 
 # %%
+if __name__ == "__main__":
+    main()
