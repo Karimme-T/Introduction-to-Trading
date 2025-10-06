@@ -11,24 +11,38 @@ import re
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", str(s)).strip().lower()
 
-def _ms_to_datetime(s: pd.Series) -> pd.Series:
-    try:
-        sr = pd.to_numeric(s, errors="coerce")
-        if sr.notna().any():
-            if(sr.dropna() > 1e11).mean() > 0.5:
-                return pd.to_datetime(sr, unit="ms", utc=True).dt.tz_localize(None)
-    except Exception:
-        pass
-    return pd.to_datetime(s, errors="coerce", utc=True).dt.tz_localize(None)
+def _find_header_row(path: str) -> int:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        for i, line in enumerate(f):
+            cols = [c.strip().strip('"').lower() for c in line.split(",")]
+            s = set(cols)
+            if {"date", "open", "high", "low", "close"}.issubset(s):
+                return i
+            if {"unix", "open", "high", "low", "close"}.issubset(s):
+                return i
+    return 0 
+
+def _ms_to_datetime(df: pd.DataFrame) -> pd.Series:
+    d = pd.to_datetime(df.get("Date"), errors="coerce", utc=False)
+    if d.isna().all() and "unix" in df.columns:
+        d = pd.to_datetime(pd.to_numeric(df["unix"], errors="coerce"), unit="s", utc=False)
+    return d
 
 
 def cargar_y_limpiar(path_csv: str) -> pd.DataFrame:
-    df = pd.read_csv(path_csv)
+    hdr = _find_header_row(path_csv)
+    df = pd.read_csv(
+        path_csv,
+        header=hdr,
+        sep=",",
+        encoding="utf-8",
+        low_memory=False,
+        on_bad_lines="skip"
+    )
 
-    # Normalizar encabezados
-    orig_cols = list(df.columns)
-    norm_cols = [_norm(c) for c in df.columns]
-    df.columns = norm_cols
+    # 3) Normaliza nombres y mapea a tu estándar
+    raw_cols = list(df.columns)
+    df.columns = [_norm(c) for c in df.columns]
 
     # Mapeo de encabezados
     mapping = {
@@ -46,30 +60,25 @@ def cargar_y_limpiar(path_csv: str) -> pd.DataFrame:
         "volume_BTC": "Volume BTC",
     }
 
-    rename_dict = {c: mapping[c] for c in df.columns if c in mapping}
-    df = df.rename(columns=rename_dict)
-
-    if "Date" in df.columns:
-        df["Date"] = _ms_to_datetime(df["Date"])
-    else:
-        pass
-
+    df = df.rename(columns={c: mapping[c] for c in df.columns if c in mapping})
+    df["Date"] = _ms_to_datetime(df)
     for col in ["Open", "High", "Low", "Close", "Volume BTC"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-
+    
     required = ["Date", "Open", "High", "Low", "Close", "Volume BTC"]
-    present = [c for c in required if c in df.columns]
+    
     missing = [c for c in required if c not in df.columns]
+    
     if missing:
         raise ValueError(
-            "Faltan columnas requeridas: "
-            f"{missing}. Columnas detectadas (normalizadas→final): "
-            f"{list(zip(orig_cols, df.columns))}"
+            f"Faltan columnas requeridas: {missing}. "
+            f"Cabeceras originales: {raw_cols}"
         )
 
+    df = df.dropna(subset=["Date"])
+    df = df.sort_values("Date").reset_index(drop=True)
     df = df[required + [c for c in df.columns if c not in required]]
-    df = df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
 
     return df
 

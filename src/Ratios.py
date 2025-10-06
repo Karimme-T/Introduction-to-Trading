@@ -19,7 +19,7 @@ def calmar_ratio(equity: pd.Series) -> float:
         return -np.inf
     
     total_return = equity.iloc[-1] / equity.iloc[0] - 1
-    years = (equity.index[-1] - equity.index[0]).total_seconds() / (365.25*24*3600)
+    years = (equity.index[-1] - equity.index[0]).total_seconds() / (365*24*3600)
     cagr = (1 + total_return)**(1/years) - 1 if years > 0 and (1 + total_return) >= 0 else total_return
     mdd = max_drawdown(equity)
     if mdd >= 0: 
@@ -54,21 +54,38 @@ def win_rate(trades: List[Trade]) -> float:
     wins = sum(1 for tr in trades if tr.pnl is not None and tr.pnl > 0)
     return wins / len(trades)
 
-def compute_metrics(result: BacktestResult) -> Dict[str, float]:
-    eq = result.equity_curve
+def compute_metrics(result):
+    eq = result["equity"] if isinstance(result, dict) else result
+    eq = pd.Series(eq)
     if eq.empty or len(eq) < 2:
         return {
             "Total Return": 0.0, "CAGR": 0.0, "MDD": 0.0, "CALMAR": -np.inf, "SHARPE": 0.0, 
             "SORTINO": 0.0, "WINRATE": 0.0, "NUMTRADES": len(result.trades)
         }
     
-    ret = eq.pct_change().fillna(0.0) 
-    years_cagr = (eq.index[-1] - eq.index[0]).total_seconds() / (365.25*24*3600)
-    if years_cagr > 0 and (1 + (eq.iloc[-1]/eq.iloc[0] -1)) >= 0:
-        cagr_val = (1 + (eq.iloc[-1]/eq.iloc[0]-1)) ** (1/years_cagr) -1
-    else:
-        cagr_val = 0.0
-    
+    idx = eq.index
+    if not isinstance(idx, pd.DatetimeIndex):
+        idx_dt = pd.to_datetime(idx, units="s", errors="coerce")
+        if idx_dt.isna().all():
+            idx_dt = pd.to_datetime(idx, units="ms", errors="coerce")
+        if not idx_dt.isna().all():
+            eq = eq.copy()
+            eq.index = idx_dt
+            idx = eq.index
+        else:
+            vals = np.asarray(idx, dtype="float64")
+            d = np.median(np.diff(vals)) if len(vals) > 1 else 1.0
+            if d > 1e6:
+                seconds_total = (vals[-1] - vals[0]) / 1e3
+            else:
+                seconds_total = (vals[-1] - vals[0])
+
+            years_cagr = seconds_total / (365 * 24 * 3600)
+    if isinstance(idx, pd.DatetimeIndex):
+        delta = (idx[-1] - idx[0])
+        years_cagr = delta.total_seconds() / (365 * 24 * 3600)
+    years_cagr = max(float(years_cagr), 1e-9)
+
     stats = {
         "Total Return": float(eq.iloc[-1]/eq.iloc[0] - 1),
         "CAGR": float(cagr_val),
